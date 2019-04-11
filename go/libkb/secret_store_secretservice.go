@@ -6,9 +6,13 @@
 package libkb
 
 import (
+	cryptorand "crypto/rand"
+	"crypto/sha256"
 	"fmt"
 
 	dbus "github.com/guelfey/go.dbus"
+	"github.com/keybase/client/go/erasablekv"
+	"github.com/keybase/go-crypto/hkdf"
 	secsrv "github.com/keybase/go-keychain/secretservice"
 
 	"github.com/pkg/errors"
@@ -88,6 +92,12 @@ func (s *SecretStoreSecretService) RetrieveSecret(mctx MetaContext, username Nor
 func (s *SecretStoreSecretService) StoreSecret(mctx MetaContext, username NormalizedUsername, secret LKSecFullSecret) (err error) {
 	defer mctx.TraceTimed("SecretStoreSecretService.StoreSecret", func() error { return err })()
 
+	keyringSecret := make([]byte, 32)
+	_, err = cryptorand.Read(keyringSecret)
+	if err != nil {
+		return err
+	}
+
 	srv, err := secsrv.NewService()
 	if err != nil {
 		return err
@@ -99,7 +109,7 @@ func (s *SecretStoreSecretService) StoreSecret(mctx MetaContext, username Normal
 	defer srv.CloseSession(session)
 	label := fmt.Sprintf("%s@%s", username, mctx.G().Env.GetStoredSecretServiceName())
 	properties := secsrv.NewSecretProperties(label, s.makeAttributes(mctx, username))
-	srvSecret, err := session.NewSecret(secret.Bytes())
+	srvSecret, err := session.NewSecret(keyringSecret[:])
 	if err != nil {
 		return err
 	}
@@ -108,6 +118,15 @@ func (s *SecretStoreSecretService) StoreSecret(mctx MetaContext, username Normal
 		return err
 	}
 	_, err = srv.CreateItem(secsrv.DefaultCollection, properties, srvSecret, secsrv.ReplaceBehaviorReplace)
+	if err != nil {
+		return err
+	}
+
+	ekstore := erasablekv.NewFileErasableKVStore(mctx, fmt.Sprintf("ring/%s", username), func(mctx MetaContext, noise NoiseBytes) {
+		return hkdf.New(sha256.New, append(noise[:], keyringSecret...), nil, "Keybase-Derived-LKS-SecretBox-1")
+	})
+
+	err = ekstore.Put(mctx, "key", secret)
 	if err != nil {
 		return err
 	}

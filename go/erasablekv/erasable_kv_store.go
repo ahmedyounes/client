@@ -60,6 +60,8 @@ type ErasableKVStore interface {
 	AllKeys(mctx libkb.MetaContext, keySuffix string) ([]string, error)
 }
 
+type keygenFunc = func(mctx libkb.MetaContext, noise libkb.NoiseBytes) ([32]byte, error)
+
 // File based erasable kv store. Thread safe.
 // We encrypt all data stored here with a mix of the device long term key and a
 // large random noise file. We use the random noise file to make it more
@@ -68,13 +70,15 @@ type ErasableKVStore interface {
 type FileErasableKVStore struct {
 	sync.Mutex
 	storageDir string
+	keygen keygenFunc
 }
 
 var _ ErasableKVStore = (*FileErasableKVStore)(nil)
 
-func NewFileErasableKVStore(mctx libkb.MetaContext, subDir string) *FileErasableKVStore {
+func NewFileErasableKVStore(mctx libkb.MetaContext, subDir string, keygen keygenFunc) *FileErasableKVStore {
 	return &FileErasableKVStore{
 		storageDir: getStorageDir(mctx, subDir),
+		keygen: keygen
 	}
 }
 
@@ -86,19 +90,19 @@ func (s *FileErasableKVStore) noiseKey(key string) string {
 	return fmt.Sprintf("%s%s", url.QueryEscape(key), noiseSuffix)
 }
 
-func (s *FileErasableKVStore) getEncryptionKey(mctx libkb.MetaContext, noiseBytes libkb.NoiseBytes) (fkey [32]byte, err error) {
-	enckey, err := getLocalStorageSecretBoxKey(mctx)
-	if err != nil {
-		return fkey, err
-	}
+// func (s *FileErasableKVStore) getEncryptionKey(mctx libkb.MetaContext, noiseBytes libkb.NoiseBytes) (fkey [32]byte, err error) {
+// 	enckey, err := getLocalStorageSecretBoxKey(mctx)
+// 	if err != nil {
+// 		return fkey, err
+// 	}
 
-	xor, err := libkb.NoiseXOR(enckey, noiseBytes)
-	if err != nil {
-		return fkey, err
-	}
-	copy(fkey[:], xor)
-	return fkey, nil
-}
+// 	xor, err := libkb.NoiseXOR(enckey, noiseBytes)
+// 	if err != nil {
+// 		return fkey, err
+// 	}
+// 	copy(fkey[:], xor)
+// 	return fkey, nil
+// }
 
 func (s *FileErasableKVStore) unbox(mctx libkb.MetaContext, data []byte, noiseBytes libkb.NoiseBytes, val interface{}) (err error) {
 	defer mctx.TraceTimed("FileErasableKVStore#unbox", func() error { return err })()
@@ -110,7 +114,7 @@ func (s *FileErasableKVStore) unbox(mctx libkb.MetaContext, data []byte, noiseBy
 	if boxed.V > cryptoVersion {
 		return NewUnboxError(fmt.Errorf("unexpected crypto version: %d current: %d", boxed.V, cryptoVersion))
 	}
-	enckey, err := s.getEncryptionKey(mctx, noiseBytes)
+	enckey, err := s.keygen(mctx, noiseBytes)
 	if err != nil {
 		return err
 	}
@@ -137,7 +141,7 @@ func (s *FileErasableKVStore) box(mctx libkb.MetaContext, val interface{},
 		return data, err
 	}
 
-	enckey, err := s.getEncryptionKey(mctx, noiseBytes)
+	enckey, err := s.keygen(mctx, noiseBytes)
 	if err != nil {
 		return data, err
 	}
