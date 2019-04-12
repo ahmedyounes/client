@@ -1,11 +1,10 @@
 // +build darwin
 
-package erasablekv
+package libkb
 
 import (
 	"path/filepath"
 
-	"github.com/keybase/client/go/libkb"
 	"github.com/pkg/xattr"
 )
 

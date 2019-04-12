@@ -1,12 +1,11 @@
 // +build darwin
 
-package erasablekv
+package libkb
 
 import (
 	"testing"
 
 	"github.com/keybase/client/go/kbtest"
-	"github.com/keybase/client/go/libkb"
 	"github.com/pkg/xattr"
 	"github.com/stretchr/testify/require"
 )

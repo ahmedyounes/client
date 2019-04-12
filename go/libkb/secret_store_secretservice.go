@@ -11,7 +11,6 @@ import (
 	"fmt"
 
 	dbus "github.com/guelfey/go.dbus"
-	"github.com/keybase/client/go/erasablekv"
 	"github.com/keybase/go-crypto/hkdf"
 	secsrv "github.com/keybase/go-keychain/secretservice"
 
@@ -122,8 +121,9 @@ func (s *SecretStoreSecretService) StoreSecret(mctx MetaContext, username Normal
 		return err
 	}
 
-	ekstore := erasablekv.NewFileErasableKVStore(mctx, fmt.Sprintf("ring/%s", username), func(mctx MetaContext, noise NoiseBytes) {
-		return hkdf.New(sha256.New, append(noise[:], keyringSecret...), nil, "Keybase-Derived-LKS-SecretBox-1")
+	ekstore := NewFileErasableKVStore(mctx, fmt.Sprintf("ring/%s", username), func(mctx MetaContext, noise NoiseBytes) ([32]byte, error) {
+		_ = hkdf.New(sha256.New, append(noise[:], keyringSecret...), nil, []byte("Keybase-Derived-LKS-SecretBox-1"))
+		return [32]byte{}, nil
 	})
 
 	err = ekstore.Put(mctx, "key", secret)

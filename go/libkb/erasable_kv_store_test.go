@@ -1,4 +1,4 @@
-package erasablekv
+package libkb
 
 import (
 	"fmt"
@@ -7,12 +7,11 @@ import (
 	"testing"
 
 	"github.com/keybase/client/go/kbtest"
-	"github.com/keybase/client/go/libkb"
 	"github.com/stretchr/testify/require"
 )
 
 func TestErasableKVStore(t *testing.T) {
-	tc := libkb.SetupTest(t, "erasablekv store encryption", 1)
+	tc := libkb.SetupTest(t, "libkb store encryption", 1)
 	defer tc.Cleanup()
 	mctx := libkb.NewMetaContextForTest(tc)
 

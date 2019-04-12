@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/keybase/client/go/erasablekv"
 	"github.com/keybase/client/go/libkb"
 	"github.com/keybase/client/go/logger"
 	keybase1 "github.com/keybase/client/go/protocol/keybase1"
@@ -31,7 +30,7 @@ type DeviceEKMap map[keybase1.EkGeneration]keybase1.DeviceEk
 
 type DeviceEKStorage struct {
 	sync.Mutex
-	storage erasablekv.ErasableKVStore
+	storage libkb.ErasableKVStore
 	cache   deviceEKCache
 	indexed bool
 	logger  *log.Logger
@@ -67,7 +66,7 @@ func getLogPrefix(mctx libkb.MetaContext) string {
 
 func NewDeviceEKStorage(mctx libkb.MetaContext) *DeviceEKStorage {
 	return &DeviceEKStorage{
-		storage: erasablekv.NewFileErasableKVStore(mctx, deviceEKSubDir),
+		storage: libkb.NewFileErasableKVStore(mctx, deviceEKSubDir),
 		cache:   make(deviceEKCache),
 		logger:  getLogger(mctx),
 	}
@@ -219,7 +218,7 @@ func (s *DeviceEKStorage) Get(mctx libkb.MetaContext, generation keybase1.EkGene
 	// Try persistent storage.
 	deviceEK, err = s.get(mctx, generation)
 	switch err.(type) {
-	case nil, erasablekv.UnboxError:
+	case nil, libkb.UnboxError:
 		// cache the result
 		cache[generation] = deviceEKCacheItem{
 			DeviceEK: deviceEK,
@@ -241,7 +240,7 @@ func (s *DeviceEKStorage) get(mctx libkb.MetaContext, generation keybase1.EkGene
 
 	if err = s.storage.Get(mctx, key, &deviceEK); err != nil {
 		switch err.(type) {
-		case erasablekv.UnboxError:
+		case libkb.UnboxError:
 			s.ekLogf(mctx, "DeviceEKStorage#get: corrupted generation: %v -> %v: %v", key, generation, err)
 			if ierr := s.storage.Erase(mctx, key); ierr != nil {
 				s.ekLogf(mctx, "DeviceEKStorage#get: unable to delete corrupted generation: %v", ierr)
@@ -295,7 +294,7 @@ func (s *DeviceEKStorage) getCache(mctx libkb.MetaContext) (cache deviceEKCache,
 			}
 			deviceEK, err := s.get(mctx, generation)
 			switch err.(type) {
-			case nil, erasablekv.UnboxError:
+			case nil, libkb.UnboxError:
 				s.cache[generation] = deviceEKCacheItem{
 					DeviceEK: deviceEK,
 					Err:      err,
