@@ -18,28 +18,28 @@ import (
 	"github.com/pkg/errors"
 )
 
-type SecretStoreSecretService struct{}
+type SecretStoreRevokableSecretService struct{}
 
-var _ SecretStoreAll = (*SecretStoreSecretService)(nil)
+var _ SecretStoreAll = (*SecretStoreRevokableSecretService)(nil)
 
-func NewSecretStoreSecretService() *SecretStoreSecretService {
-	return &SecretStoreSecretService{}
+func NewSecretStoreRevokableSecretService() *SecretStoreRevokableSecretService {
+	return &SecretStoreRevokableSecretService{}
 }
 
-func (s *SecretStoreSecretService) makeServiceAttributes(mctx MetaContext) secsrv.Attributes {
+func (s *SecretStoreRevokableSecretService) makeServiceAttributes(mctx MetaContext) secsrv.Attributes {
 	return secsrv.Attributes{
 		"service": mctx.G().Env.GetStoredSecretServiceName(),
 	}
 }
 
-func (s *SecretStoreSecretService) makeAttributes(mctx MetaContext, username NormalizedUsername) secsrv.Attributes {
+func (s *SecretStoreRevokableSecretService) makeAttributes(mctx MetaContext, username NormalizedUsername) secsrv.Attributes {
 	serviceAttributes := s.makeServiceAttributes(mctx)
 	serviceAttributes["username"] = string(username)
 	serviceAttributes["note"] = "https://keybase.io/docs/crypto/local-key-security"
 	return serviceAttributes
 }
 
-func (s *SecretStoreSecretService) maybeRetrieveSingleItem(mctx MetaContext, srv *secsrv.SecretService, username NormalizedUsername) (*dbus.ObjectPath, error) {
+func (s *SecretStoreRevokableSecretService) maybeRetrieveSingleItem(mctx MetaContext, srv *secsrv.SecretService, username NormalizedUsername) (*dbus.ObjectPath, error) {
 	if srv == nil {
 		return nil, fmt.Errorf("got nil d-bus secretservice")
 	}
@@ -62,8 +62,20 @@ func (s *SecretStoreSecretService) maybeRetrieveSingleItem(mctx MetaContext, srv
 	return &item, nil
 }
 
-func (s *SecretStoreSecretService) RetrieveSecret(mctx MetaContext, username NormalizedUsername) (secret LKSecFullSecret, err error) {
-	defer mctx.TraceTimed("SecretStoreSecretService.RetrieveSecret", func() error { return err })()
+func (s *SecretStoreRevokableSecretService) ekstore(mctx MetaContext, username string, keyringSecret []byte) ErasableKVStore {
+	keygen := func(mctx MetaContext, noise NoiseBytes) (xs [32]byte, err error) {
+		h := hkdf.New(sha256.New, append(noise[:], keyringSecret...), nil, []byte("Keybase-Derived-LKS-SecretBox-1"))
+		_, err = io.ReadFull(h, xs[:])
+		if err != nil {
+			return [32]byte{}, err
+		}
+		return xs, nil
+	}
+	return NewFileErasableKVStore(mctx, fmt.Sprintf("ring/%s", username), keygen)
+}
+
+func (s *SecretStoreRevokableSecretService) RetrieveSecret(mctx MetaContext, username NormalizedUsername) (secret LKSecFullSecret, err error) {
+	defer mctx.TraceTimed("SecretStoreRevokableSecretService.RetrieveSecret", func() error { return err })()
 
 	srv, err := secsrv.NewService()
 	if err != nil {
@@ -97,8 +109,8 @@ func (s *SecretStoreSecretService) RetrieveSecret(mctx MetaContext, username Nor
 	return newLKSecFullSecretFromBytes(secretBytes)
 }
 
-func (s *SecretStoreSecretService) StoreSecret(mctx MetaContext, username NormalizedUsername, secret LKSecFullSecret) (err error) {
-	defer mctx.TraceTimed("SecretStoreSecretService.StoreSecret", func() error { return err })()
+func (s *SecretStoreRevokableSecretService) StoreSecret(mctx MetaContext, username NormalizedUsername, secret LKSecFullSecret) (err error) {
+	defer mctx.TraceTimed("SecretStoreRevokableSecretService.StoreSecret", func() error { return err })()
 
 	keyringSecret := make([]byte, 32)
 	_, err = cryptorand.Read(keyringSecret)
@@ -139,28 +151,23 @@ func (s *SecretStoreSecretService) StoreSecret(mctx MetaContext, username Normal
 	return nil
 }
 
-func (s *SecretStoreSecretService) ekstore(mctx MetaContext, username string, keyringSecret []byte) ErasableKVStore {
-	keygen := func(mctx MetaContext, noise NoiseBytes) (xs [32]byte, err error) {
-		h := hkdf.New(sha256.New, append(noise[:], keyringSecret...), nil, []byte("Keybase-Derived-LKS-SecretBox-1"))
-		_, err = io.ReadFull(h, xs[:])
-		if err != nil {
-			return [32]byte{}, err
-		}
-		return xs, nil
-	}
-	return NewFileErasableKVStore(mctx, fmt.Sprintf("ring/%s", username), keygen)
-}
+func (s *SecretStoreRevokableSecretService) ClearSecret(mctx MetaContext, username NormalizedUsername) (err error) {
+	defer mctx.TraceTimed("SecretStoreRevokableSecretService.ClearSecret", func() error { return err })()
 
-func (s *SecretStoreSecretService) ClearSecret(mctx MetaContext, username NormalizedUsername) (err error) {
-	defer mctx.TraceTimed("SecretStoreSecretService.ClearSecret", func() error { return err })()
+	// Delete file-based portion first. If it fails, we can still try to erase the keyring's portion.
+	eraseOnlyEKStore := s.ekstore(mctx, string(username), []byte{}) // can give nil secret because we're just erasing
+	ekErr := eraseOnlyEKStore.Erase(mctx, "key")
+	if ekErr != nil {
+		mctx.Warning("Failed to erase EKV half: %s; attempting to delete from keyring", ekErr)
+	}
 
 	srv, err := secsrv.NewService()
 	if err != nil {
-		return err
+		return CombineErrors(ekErr, err)
 	}
 	item, err := s.maybeRetrieveSingleItem(mctx, srv, username)
 	if err != nil {
-		return err
+		return CombineErrors(ekErr, err)
 	}
 	if item == nil {
 		mctx.Debug("secret not found; short-circuiting clear")
@@ -168,13 +175,14 @@ func (s *SecretStoreSecretService) ClearSecret(mctx MetaContext, username Normal
 	}
 	err = srv.DeleteItem(*item)
 	if err != nil {
-		return err
+		return CombineErrors(ekErr, err)
 	}
-	return nil
+
+	return ekErr
 }
 
-func (s *SecretStoreSecretService) GetUsersWithStoredSecrets(mctx MetaContext) (usernames []string, err error) {
-	defer mctx.TraceTimed("SecretStoreSecretService.GetUsersWithStoredSecrets", func() error { return err })()
+func (s *SecretStoreRevokableSecretService) GetUsersWithStoredSecrets(mctx MetaContext) (usernames []string, err error) {
+	defer mctx.TraceTimed("SecretStoreRevokableSecretService.GetUsersWithStoredSecrets", func() error { return err })()
 
 	srv, err := secsrv.NewService()
 	if err != nil {
@@ -198,5 +206,5 @@ func (s *SecretStoreSecretService) GetUsersWithStoredSecrets(mctx MetaContext) (
 	return usernames, nil
 }
 
-func (s *SecretStoreSecretService) GetOptions(MetaContext) *SecretStoreOptions  { return nil }
-func (s *SecretStoreSecretService) SetOptions(MetaContext, *SecretStoreOptions) {}
+func (s *SecretStoreRevokableSecretService) GetOptions(MetaContext) *SecretStoreOptions  { return nil }
+func (s *SecretStoreRevokableSecretService) SetOptions(MetaContext, *SecretStoreOptions) {}
