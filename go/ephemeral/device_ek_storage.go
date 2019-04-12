@@ -64,9 +64,43 @@ func getLogPrefix(mctx libkb.MetaContext) string {
 	return fmt.Sprintf("[username=%v] ", mctx.G().Env.GetUsername())
 }
 
+func getLocalStorageSecretBoxKey(mctx libkb.MetaContext) (fkey [32]byte, err error) {
+	// Get secret device key
+	encKey, err := mctx.ActiveDevice().EncryptionKey()
+	if err != nil {
+		return fkey, err
+	}
+	kp, ok := encKey.(libkb.NaclDHKeyPair)
+	if !ok || kp.Private == nil {
+		return fkey, libkb.KeyCannotDecryptError{}
+	}
+
+	// Derive symmetric key from device key
+	skey, err := encKey.SecretSymmetricKey(libkb.EncryptionReasonErasableKVLocalStorage)
+	if err != nil {
+		return fkey, err
+	}
+
+	copy(fkey[:], skey[:])
+	return fkey, nil
+}
+
 func NewDeviceEKStorage(mctx libkb.MetaContext) *DeviceEKStorage {
+	keygen := func(mctx libkb.MetaContext, noiseBytes libkb.NoiseBytes) (fkey [32]byte, err error) {
+		enckey, err := getLocalStorageSecretBoxKey(mctx)
+		if err != nil {
+			return fkey, err
+		}
+
+		xor, err := libkb.NoiseXOR(enckey, noiseBytes)
+		if err != nil {
+			return fkey, err
+		}
+		copy(fkey[:], xor)
+		return fkey, nil
+	}
 	return &DeviceEKStorage{
-		storage: libkb.NewFileErasableKVStore(mctx, deviceEKSubDir),
+		storage: libkb.NewFileErasableKVStore(mctx, deviceEKSubDir, keygen),
 		cache:   make(deviceEKCache),
 		logger:  getLogger(mctx),
 	}

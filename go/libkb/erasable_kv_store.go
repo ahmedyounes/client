@@ -89,20 +89,6 @@ func (s *FileErasableKVStore) noiseKey(key string) string {
 	return fmt.Sprintf("%s%s", url.QueryEscape(key), noiseSuffix)
 }
 
-// func (s *FileErasableKVStore) getEncryptionKey(mctx MetaContext, noiseBytes NoiseBytes) (fkey [32]byte, err error) {
-// 	enckey, err := getLocalStorageSecretBoxKey(mctx)
-// 	if err != nil {
-// 		return fkey, err
-// 	}
-
-// 	xor, err := NoiseXOR(enckey, noiseBytes)
-// 	if err != nil {
-// 		return fkey, err
-// 	}
-// 	copy(fkey[:], xor)
-// 	return fkey, nil
-// }
-
 func (s *FileErasableKVStore) unbox(mctx MetaContext, data []byte, noiseBytes NoiseBytes, val interface{}) (err error) {
 	defer mctx.TraceTimed("FileErasableKVStore#unbox", func() error { return err })()
 	// Decode encrypted box
@@ -332,25 +318,4 @@ func (s *FileErasableKVStore) AllKeys(mctx MetaContext, keySuffix string) (keys 
 		keys = append(keys, key)
 	}
 	return keys, nil
-}
-
-func getLocalStorageSecretBoxKey(mctx MetaContext) (fkey [32]byte, err error) {
-	// Get secret device key
-	encKey, err := mctx.ActiveDevice().EncryptionKey()
-	if err != nil {
-		return fkey, err
-	}
-	kp, ok := encKey.(NaclDHKeyPair)
-	if !ok || kp.Private == nil {
-		return fkey, KeyCannotDecryptError{}
-	}
-
-	// Derive symmetric key from device key
-	skey, err := encKey.SecretSymmetricKey(EncryptionReasonErasableKVLocalStorage)
-	if err != nil {
-		return fkey, err
-	}
-
-	copy(fkey[:], skey[:])
-	return fkey, nil
 }

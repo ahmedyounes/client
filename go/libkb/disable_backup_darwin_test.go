@@ -5,7 +5,6 @@ package libkb
 import (
 	"testing"
 
-	"github.com/keybase/client/go/kbtest"
 	"github.com/pkg/xattr"
 	"github.com/stretchr/testify/require"
 )
@@ -14,9 +13,6 @@ func TestSetDisableBackup(t *testing.T) {
 	tc := libkb.SetupTest(t, "erasable kv store disable backup", 1)
 	defer tc.Cleanup()
 	mctx := libkb.NewMetaContextForTest(tc)
-
-	_, err := kbtest.CreateAndSignupFakeUser("t", tc.G)
-	require.NoError(t, err)
 
 	subDir := ""
 	s := NewFileErasableKVStore(mctx, subDir)

@@ -9,6 +9,7 @@ import (
 	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"fmt"
+	"io"
 
 	dbus "github.com/guelfey/go.dbus"
 	"github.com/keybase/go-crypto/hkdf"
@@ -81,10 +82,18 @@ func (s *SecretStoreSecretService) RetrieveSecret(mctx MetaContext, username Nor
 	if item == nil {
 		return LKSecFullSecret{}, fmt.Errorf("secret not found in secretstore")
 	}
-	secretBytes, err := srv.GetSecret(*item, *session)
+	keyringSecret, err := srv.GetSecret(*item, *session)
 	if err != nil {
 		return LKSecFullSecret{}, err
 	}
+
+	ekstore := s.ekstore(mctx, string(username), keyringSecret)
+	var secretBytes []byte
+	err = ekstore.Get(mctx, "key", &secretBytes)
+	if err != nil {
+		return LKSecFullSecret{}, err
+	}
+
 	return newLKSecFullSecretFromBytes(secretBytes)
 }
 
@@ -108,7 +117,7 @@ func (s *SecretStoreSecretService) StoreSecret(mctx MetaContext, username Normal
 	defer srv.CloseSession(session)
 	label := fmt.Sprintf("%s@%s", username, mctx.G().Env.GetStoredSecretServiceName())
 	properties := secsrv.NewSecretProperties(label, s.makeAttributes(mctx, username))
-	srvSecret, err := session.NewSecret(keyringSecret[:])
+	srvSecret, err := session.NewSecret(keyringSecret)
 	if err != nil {
 		return err
 	}
@@ -121,19 +130,25 @@ func (s *SecretStoreSecretService) StoreSecret(mctx MetaContext, username Normal
 		return err
 	}
 
-	keygen := func(mctx MetaContext, noise NoiseBytes) ([32]byte, error) {
-		_ = hkdf.New(sha256.New, append(noise[:], keyringSecret...), nil, []byte("Keybase-Derived-LKS-SecretBox-1"))
-		return [32]byte{}, nil
-	}
-
-	ekstore := NewFileErasableKVStore(mctx, fmt.Sprintf("ring/%s", username), keygen)
-
-	err = ekstore.Put(mctx, "key", secret)
+	ekstore := s.ekstore(mctx, string(username), keyringSecret)
+	err = ekstore.Put(mctx, "key", secret.Bytes())
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (s *SecretStoreSecretService) ekstore(mctx MetaContext, username string, keyringSecret []byte) ErasableKVStore {
+	keygen := func(mctx MetaContext, noise NoiseBytes) (xs [32]byte, err error) {
+		h := hkdf.New(sha256.New, append(noise[:], keyringSecret...), nil, []byte("Keybase-Derived-LKS-SecretBox-1"))
+		_, err = io.ReadFull(h, xs[:])
+		if err != nil {
+			return [32]byte{}, err
+		}
+		return xs, nil
+	}
+	return NewFileErasableKVStore(mctx, fmt.Sprintf("ring/%s", username), keygen)
 }
 
 func (s *SecretStoreSecretService) ClearSecret(mctx MetaContext, username NormalizedUsername) (err error) {
