@@ -18,27 +18,27 @@ func TestDeviceEKStorage(t *testing.T) {
 	now := time.Now()
 	testKeys := []keybase1.DeviceEk{
 		{
-			Seed: keybase1.Bytes32(MakeByte32([]byte("deviceekseed-deviceekseed-devic0"))),
+			Seed: keybase1.Bytes32(libkb.MakeByte32([]byte("deviceekseed-deviceekseed-devic0"))),
 			Metadata: keybase1.DeviceEkMetadata{
 				Generation:  0,
 				HashMeta:    keybase1.HashMeta("fakeHashMeta0"),
 				Kid:         "",
-				Ctime:       keybase1.ToTime(now.Add(-MaxEphemeralKeyStaleness * 3)),
-				DeviceCtime: keybase1.ToTime(now.Add(-MaxEphemeralKeyStaleness * 3)),
+				Ctime:       keybase1.ToTime(now.Add(-libkb.MaxEphemeralKeyStaleness * 3)),
+				DeviceCtime: keybase1.ToTime(now.Add(-libkb.MaxEphemeralKeyStaleness * 3)),
 			},
 		},
 		{
-			Seed: keybase1.Bytes32(MakeByte32([]byte("deviceekseed-deviceekseed-devic1"))),
+			Seed: keybase1.Bytes32(libkb.MakeByte32([]byte("deviceekseed-deviceekseed-devic1"))),
 			Metadata: keybase1.DeviceEkMetadata{
 				Generation:  1,
 				HashMeta:    keybase1.HashMeta("fakeHashMeta1"),
 				Kid:         "",
-				Ctime:       keybase1.ToTime(now.Add(-MaxEphemeralKeyStaleness * 3)),
-				DeviceCtime: keybase1.ToTime(now.Add(-MaxEphemeralKeyStaleness * 3)),
+				Ctime:       keybase1.ToTime(now.Add(-libkb.MaxEphemeralKeyStaleness * 3)),
+				DeviceCtime: keybase1.ToTime(now.Add(-libkb.MaxEphemeralKeyStaleness * 3)),
 			},
 		},
 		{
-			Seed: keybase1.Bytes32(MakeByte32([]byte("deviceekseed-deviceekseed-devic2"))),
+			Seed: keybase1.Bytes32(libkb.MakeByte32([]byte("deviceekseed-deviceekseed-devic2"))),
 			Metadata: keybase1.DeviceEkMetadata{
 				Generation:  2,
 				HashMeta:    keybase1.HashMeta("fakeHashMeta2"),
@@ -48,7 +48,7 @@ func TestDeviceEKStorage(t *testing.T) {
 			},
 		},
 		{
-			Seed: keybase1.Bytes32(MakeByte32([]byte("deviceekseed-deviceekseed-devic3"))),
+			Seed: keybase1.Bytes32(libkb.MakeByte32([]byte("deviceekseed-deviceekseed-devic3"))),
 			Metadata: keybase1.DeviceEkMetadata{
 				Generation:  3,
 				HashMeta:    keybase1.HashMeta("fakeHashMeta3"),
@@ -59,7 +59,7 @@ func TestDeviceEKStorage(t *testing.T) {
 		},
 	}
 
-	merkleRootPtr, err := tc.G.GetMerkleClient().FetchRootFromServer(mctx, EphemeralKeyMerkleFreshness)
+	merkleRootPtr, err := tc.G.GetMerkleClient().FetchRootFromServer(mctx, libkb.EphemeralKeyMerkleFreshness)
 	require.NoError(t, err)
 	merkleRoot := *merkleRootPtr
 
@@ -104,13 +104,13 @@ func TestDeviceEKStorage(t *testing.T) {
 
 	deviceEK, err := s.Get(mctx, 2)
 	require.Error(t, err)
-	require.IsType(t, UnboxError{}, err)
+	require.IsType(t, libkb.UnboxError{}, err)
 	require.Equal(t, keybase1.DeviceEk{}, deviceEK)
 
 	// Test Get nonexistent
 	nonexistent, err := s.Get(mctx, keybase1.EkGeneration(len(testKeys)+1))
 	require.Error(t, err)
-	require.IsType(t, UnboxError{}, err)
+	require.IsType(t, libkb.UnboxError{}, err)
 	require.Equal(t, keybase1.DeviceEk{}, nonexistent)
 
 	// include the cached error in the max
@@ -134,7 +134,7 @@ func TestDeviceEKStorage(t *testing.T) {
 	// deletion correctly.
 	uv, err := tc.G.GetMeUV(context.TODO())
 	require.NoError(t, err)
-	erasableStorage := NewFileErasableKVStore(mctx, deviceEKSubDir)
+	erasableStorage := libkb.NewFileErasableKVStore(mctx, deviceEKSubDir, deviceEKKeygen)
 
 	// First, let's drop a deviceEK for a different user, this shouldn't be deleted
 	badUserKey := fmt.Sprintf("%s-%s-%s-0.ek", deviceEKPrefix, mctx.G().Env.GetUsername()+"x", uv.EldestSeqno)
@@ -164,14 +164,14 @@ func TestDeviceEKStorage(t *testing.T) {
 	var badEldestSeqnoDeviceEK keybase1.DeviceEk
 	err = erasableStorage.Get(mctx, badEldestSeqnoKey, &badEldestSeqnoDeviceEK)
 	require.Error(t, err)
-	require.IsType(t, UnboxError{}, err)
+	require.IsType(t, libkb.UnboxError{}, err)
 	require.Equal(t, badEldestSeqnoDeviceEK, keybase1.DeviceEk{})
 
 	// Verify we store failures in the cache
 	t.Logf("cache failures")
 	nonexistent, err = s.Get(mctx, maxGeneration+1)
 	require.Error(t, err)
-	require.IsType(t, UnboxError{}, err)
+	require.IsType(t, libkb.UnboxError{}, err)
 	require.Equal(t, keybase1.DeviceEk{}, nonexistent)
 
 	cache, err := s.getCache(mctx)
@@ -181,7 +181,7 @@ func TestDeviceEKStorage(t *testing.T) {
 	cacheItem, ok := cache[maxGeneration+1]
 	require.True(t, ok)
 	require.Error(t, cacheItem.Err)
-	require.IsType(t, UnboxError{}, cacheItem.Err)
+	require.IsType(t, libkb.UnboxError{}, cacheItem.Err)
 }
 
 // If we change the key format intentionally, we have to introduce some form of
@@ -209,29 +209,29 @@ func TestDeleteExpiredOffline(t *testing.T) {
 	now := time.Now()
 	expiredTestKeys := []keybase1.DeviceEk{
 		{
-			Seed: keybase1.Bytes32(MakeByte32([]byte("deviceekseed-deviceekseed-devic0"))),
+			Seed: keybase1.Bytes32(libkb.MakeByte32([]byte("deviceekseed-deviceekseed-devic0"))),
 			Metadata: keybase1.DeviceEkMetadata{
 				Generation: 0,
 				HashMeta:   keybase1.HashMeta("fakeHashMeta0"),
 				Kid:        "",
-				Ctime:      keybase1.ToTime(now.Add(-MaxEphemeralKeyStaleness * 3)),
+				Ctime:      keybase1.ToTime(now.Add(-libkb.MaxEphemeralKeyStaleness * 3)),
 				// Although we are 'offline' and can't get a merkleRoot, we
 				// correctly delete this key since we fall back to the Ctime
 				DeviceCtime: -1,
 			},
 		},
 		{
-			Seed: keybase1.Bytes32(MakeByte32([]byte("deviceekseed-deviceekseed-devic1"))),
+			Seed: keybase1.Bytes32(libkb.MakeByte32([]byte("deviceekseed-deviceekseed-devic1"))),
 			Metadata: keybase1.DeviceEkMetadata{
 				Generation:  1,
 				HashMeta:    keybase1.HashMeta("fakeHashMeta1"),
 				Kid:         "",
-				Ctime:       keybase1.ToTime(now.Add(-MaxEphemeralKeyStaleness * 3)),
-				DeviceCtime: keybase1.ToTime(now.Add(-MaxEphemeralKeyStaleness * 3)),
+				Ctime:       keybase1.ToTime(now.Add(-libkb.MaxEphemeralKeyStaleness * 3)),
+				DeviceCtime: keybase1.ToTime(now.Add(-libkb.MaxEphemeralKeyStaleness * 3)),
 			},
 		},
 		{
-			Seed: keybase1.Bytes32(MakeByte32([]byte("deviceekseed-deviceekseed-devic2"))),
+			Seed: keybase1.Bytes32(libkb.MakeByte32([]byte("deviceekseed-deviceekseed-devic2"))),
 			Metadata: keybase1.DeviceEkMetadata{
 				Generation:  2,
 				HashMeta:    keybase1.HashMeta("fakeHashMeta2"),
@@ -250,7 +250,7 @@ func TestDeleteExpiredOffline(t *testing.T) {
 	}
 
 	expected := []keybase1.EkGeneration{0, 1}
-	expired, err := s.DeleteExpired(mctx, MerkleRoot{})
+	expired, err := s.DeleteExpired(mctx, libkb.MerkleRoot{})
 	require.NoError(t, err)
 	require.Equal(t, expected, expired)
 
@@ -261,9 +261,9 @@ func TestDeleteExpiredOffline(t *testing.T) {
 }
 
 func TestDeviceEKStorageDeleteExpiredKeys(t *testing.T) {
-	tc := SetupTest(t, "ephemeral", 2)
+	tc := libkb.SetupTest(t, "ephemeral", 2)
 	defer tc.Cleanup()
-	mctx := NewMetaContextForTest(tc)
+	mctx := libkb.NewMetaContextForTest(tc)
 	s := NewDeviceEKStorage(mctx)
 	now := time.Now()
 
@@ -283,7 +283,7 @@ func TestDeviceEKStorageDeleteExpiredKeys(t *testing.T) {
 
 	// Test with a single key that is stale but not expired
 	keyMap = keyExpiryMap{
-		0: keybase1.ToTime(now.Add(-MaxEphemeralKeyStaleness)),
+		0: keybase1.ToTime(now.Add(-libkb.MaxEphemeralKeyStaleness)),
 	}
 	expired = s.getExpiredGenerations(mctx, keyMap, now)
 	expected = nil
@@ -291,7 +291,7 @@ func TestDeviceEKStorageDeleteExpiredKeys(t *testing.T) {
 
 	// Test with a single key that is expired
 	keyMap = keyExpiryMap{
-		0: keybase1.ToTime(now.Add(-(2*MaxEphemeralKeyStaleness + MinEphemeralKeyLifetime))),
+		0: keybase1.ToTime(now.Add(-(2*libkb.MaxEphemeralKeyStaleness + libkb.MinEphemeralKeyLifetime))),
 	}
 	expired = s.getExpiredGenerations(mctx, keyMap, now)
 	expected = []keybase1.EkGeneration{0}
@@ -299,18 +299,18 @@ func TestDeviceEKStorageDeleteExpiredKeys(t *testing.T) {
 
 	// Test with one stale and one expired key
 	keyMap = keyExpiryMap{
-		0: keybase1.ToTime(now.Add(-(2*MaxEphemeralKeyStaleness + MinEphemeralKeyLifetime))),
-		1: keybase1.ToTime(now.Add(-(MaxEphemeralKeyStaleness + MinEphemeralKeyLifetime))),
+		0: keybase1.ToTime(now.Add(-(2*libkb.MaxEphemeralKeyStaleness + libkb.MinEphemeralKeyLifetime))),
+		1: keybase1.ToTime(now.Add(-(libkb.MaxEphemeralKeyStaleness + libkb.MinEphemeralKeyLifetime))),
 	}
 	expired = s.getExpiredGenerations(mctx, keyMap, now)
 	expected = []keybase1.EkGeneration{0}
 	require.Equal(t, expected, expired)
 
-	// Test with one expired key, one stale, and one that has reached MinEphemeralKeyLifetime
+	// Test with one expired key, one stale, and one that has reached libkb.MinEphemeralKeyLifetime
 	keyMap = keyExpiryMap{
-		0: keybase1.ToTime(now.Add(-(2*MaxEphemeralKeyStaleness + MinEphemeralKeyLifetime))),
-		1: keybase1.ToTime(now.Add(-(MaxEphemeralKeyStaleness + MinEphemeralKeyLifetime))),
-		2: keybase1.ToTime(now.Add(-MinEphemeralKeyLifetime)),
+		0: keybase1.ToTime(now.Add(-(2*libkb.MaxEphemeralKeyStaleness + libkb.MinEphemeralKeyLifetime))),
+		1: keybase1.ToTime(now.Add(-(libkb.MaxEphemeralKeyStaleness + libkb.MinEphemeralKeyLifetime))),
+		2: keybase1.ToTime(now.Add(-libkb.MinEphemeralKeyLifetime)),
 	}
 	expired = s.getExpiredGenerations(mctx, keyMap, now)
 	expected = []keybase1.EkGeneration{0}
@@ -325,7 +325,7 @@ func TestDeviceEKStorageDeleteExpiredKeys(t *testing.T) {
 	keyMap = make(keyExpiryMap)
 	numKeys := 5
 	for i := 0; i < numKeys; i++ {
-		keyMap[keybase1.EkGeneration((numKeys - i - 1))] = keybase1.ToTime(now.Add(-(MaxEphemeralKeyStaleness*time.Duration(i) + MinEphemeralKeyLifetime)))
+		keyMap[keybase1.EkGeneration((numKeys - i - 1))] = keybase1.ToTime(now.Add(-(libkb.MaxEphemeralKeyStaleness*time.Duration(i) + libkb.MinEphemeralKeyLifetime)))
 	}
 	expired = s.getExpiredGenerations(mctx, keyMap, now)
 	expected = []keybase1.EkGeneration{0, 1, 2}

@@ -85,22 +85,23 @@ func getLocalStorageSecretBoxKey(mctx libkb.MetaContext) (fkey [32]byte, err err
 	return fkey, nil
 }
 
-func NewDeviceEKStorage(mctx libkb.MetaContext) *DeviceEKStorage {
-	keygen := func(mctx libkb.MetaContext, noiseBytes libkb.NoiseBytes) (fkey [32]byte, err error) {
-		enckey, err := getLocalStorageSecretBoxKey(mctx)
-		if err != nil {
-			return fkey, err
-		}
-
-		xor, err := libkb.NoiseXOR(enckey, noiseBytes)
-		if err != nil {
-			return fkey, err
-		}
-		copy(fkey[:], xor)
-		return fkey, nil
+func deviceEKKeygen(mctx libkb.MetaContext, noiseBytes libkb.NoiseBytes) (fkey [32]byte, err error) {
+	enckey, err := getLocalStorageSecretBoxKey(mctx)
+	if err != nil {
+		return fkey, err
 	}
+
+	xor, err := libkb.NoiseXOR(enckey, noiseBytes)
+	if err != nil {
+		return fkey, err
+	}
+	copy(fkey[:], xor)
+	return fkey, nil
+}
+
+func NewDeviceEKStorage(mctx libkb.MetaContext) *DeviceEKStorage {
 	return &DeviceEKStorage{
-		storage: libkb.NewFileErasableKVStore(mctx, deviceEKSubDir, keygen),
+		storage: libkb.NewFileErasableKVStore(mctx, deviceEKSubDir, deviceEKKeygen),
 		cache:   make(deviceEKCache),
 		logger:  getLogger(mctx),
 	}
