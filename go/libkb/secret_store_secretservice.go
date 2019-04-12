@@ -12,8 +12,8 @@ import (
 	"io"
 
 	dbus "github.com/guelfey/go.dbus"
-	"github.com/keybase/go-crypto/hkdf"
 	secsrv "github.com/keybase/go-keychain/secretservice"
+	"golang.org/x/crypto/hkdf"
 
 	"github.com/pkg/errors"
 )
