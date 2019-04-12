@@ -121,10 +121,12 @@ func (s *SecretStoreSecretService) StoreSecret(mctx MetaContext, username Normal
 		return err
 	}
 
-	ekstore := NewFileErasableKVStore(mctx, fmt.Sprintf("ring/%s", username), func(mctx MetaContext, noise NoiseBytes) ([32]byte, error) {
+	keygen := func(mctx MetaContext, noise NoiseBytes) ([32]byte, error) {
 		_ = hkdf.New(sha256.New, append(noise[:], keyringSecret...), nil, []byte("Keybase-Derived-LKS-SecretBox-1"))
 		return [32]byte{}, nil
-	})
+	}
+
+	ekstore := NewFileErasableKVStore(mctx, fmt.Sprintf("ring/%s", username), keygen)
 
 	err = ekstore.Put(mctx, "key", secret)
 	if err != nil {
